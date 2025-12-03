@@ -1,0 +1,79 @@
+#include <Arduino.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+
+#define ONE_WIRE_BUS 4   // Pin donde están los DS18B20
+
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+BLEServer* pServer = NULL;
+BLECharacteristic* pCharacteristic;
+
+bool deviceConnected = false;
+
+// UUIDS (DEBEN COINCIDIR CON LA WEB)
+#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+class MyServerCallbacks : public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      deviceConnected = true;
+    }
+
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+      pServer->getAdvertising()->start();
+    }
+};
+
+void setup(){
+  Serial.begin(115200);
+
+  sensors.begin();
+
+  BLEDevice::init("TUVN_Termometros");
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  BLEService *service = pServer->createService(SERVICE_UUID);
+
+  pCharacteristic = service->createCharacteristic(
+                    CHARACTERISTIC_UUID,
+                    BLECharacteristic::PROPERTY_NOTIFY
+                  );
+
+  pCharacteristic->addDescriptor(new BLE2902());
+
+  service->start();
+  pServer->getAdvertising()->start();
+}
+
+void loop() {
+
+  sensors.requestTemperatures();
+
+  float s1 = sensors.getTempCByIndex(0);
+  float s2 = sensors.getTempCByIndex(1);
+  float s3 = sensors.getTempCByIndex(2);
+  float s4 = sensors.getTempCByIndex(3);
+
+  if (deviceConnected) {
+
+    String json = "{\"s1\":" + String(s1, 1)
+                 + ",\"s2\":" + String(s2, 1)
+                 + ",\"s3\":" + String(s3, 1)
+                 + ",\"s4\":" + String(s4, 1)
+                 + "}";
+
+    Serial.println(json);
+
+    pCharacteristic->setValue(json.c_str());
+    pCharacteristic->notify();
+  }
+
+  delay(2000);
+}
